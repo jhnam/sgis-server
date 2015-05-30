@@ -12,50 +12,38 @@ Ext.define('Sgis.view.north.NorthController', {
 		}
 	},
 	
+	requires: [ 
+	   		'Sgis.view.north.measure.MeasureWindow'
+	],
+	
 	onClickAll: function () {
-		SGIS.msg.alert('전체 Clicked!');
-	},
-	
-	onClickMove: function () {
-		SGIS.msg.alert('이동 Clicked!');
-	},
-	
-	onClickZoomIn: function () {
-		SGIS.msg.alert('확대 Clicked!');
-	},
-	
-	onClickZoomOut: function () {
-		SGIS.msg.alert('축소 Clicked!');
+		Sgis.getApplication().coreMap.fullExtentMove();
 	},
 	
 	onClickPrev: function () {
-		SGIS.msg.alert('이전 Clicked!');
+		Sgis.getApplication().coreMap.prevExtentMove()
 	},
 	
 	onClickNext: function () {
-		SGIS.msg.alert('다음 Clicked!');
+		Sgis.getApplication().coreMap.nextExtentMove();
 	},
 	
-	onClickDelete: function () {
-		SGIS.msg.alert('삭제 Clicked!');
-	},
-	
-	onClickMeasure: function () {
-		SGIS.msg.alert('측정 Clicked!');
+	onClickMeasure: function (button, e) {
+		SGIS.popup('Sgis.view.north.measure.MeasureWindow', null, {modal:false, x:e.pageX-30, y:e.pageY+20});
 	},
 	
 	onClickPrint: function () {
-		SGIS.msg.alert('인쇄 Clicked!');
-	},
-	
-	onClickPrev: function () {
-		SGIS.msg.alert('이전 Clicked!');
+		Sgis.getApplication().coreMap.printTask.print();
 	},
 	
 	onClickSave: function () {
-		SGIS.msg.alert('저장 Clicked!');
+		Sgis.getApplication().coreMap.printTask.capture();
 	},
 	
+	onClickGray: function (button) {
+		Sgis.getApplication().coreMap.baseMapGray(button.pressed);
+	},
+
 	onClickMapMode: function (button, e) {
 		SGIS.msg.alert('맵 모드 ' + button.text + ' Clicked!');
 	},

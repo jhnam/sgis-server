@@ -1,3 +1,5 @@
+Ext.require('Cmm.view.LoadingPopup');
+
 Ext.define('Cmm.mixin.Loading', function() {
 	window.XMLHttpRequest.prototype.customAbort = function(){
 		if(this.readyState!=0 && this.readyState!=4){

@@ -12,6 +12,18 @@ Ext.define('Sgis.map.CoreMap', {
 	
 	map:null,
 	dynamicLayerAdmin:null,
+	geometryService:null,
+	unit:null,
+	measureCallback:null,
+	measureScope:null,
+	smpLineSymbol:null, 
+	simpleFillSymbol:null,
+	fullExtent:null,
+	extentReg:[],
+	extentRegAble:true,
+	extentUnReIdx:0,
+	printTask:null,
+	backAndWhite:false,
 	
 //	initComponent: function() {
 //		this.callParent();
@@ -44,11 +56,13 @@ Ext.define('Sgis.map.CoreMap', {
   		         "esri/symbols/PictureMarkerSymbol",
   		         "esri/symbols/Font",
   		         "esri/symbols/TextSymbol",
-
+  		         "esri/tasks/AreasAndLengthsParameters",
   		         "dijit/layout/BorderContainer",
   		         "dijit/layout/ContentPane",
   		         "dojox/uuid/generateRandomUuid"],  
   		         function() {
+		        	esri.config.defaults.io.proxyUrl = "http://" + window.location.hostname + ":8080/proxy/proxy.jsp";
+		    		esri.config.defaults.io.alwaysUseProxy = true;
 		        	me.map = new esri.Map('_mapDiv_', {
 		        		isDoubleClickZoom:false,
 		    	     	isPan:true,
@@ -58,10 +72,44 @@ Ext.define('Sgis.map.CoreMap', {
 		        	});
 		        	me.baseMapInit();
 		        	me.map.setLevel(1+6);
-		        	me.dynamicLayerAdmin = Ext.create('Sgis.map.DynamicLayerAdmin', me.map);
-		        	me.searchLayerAdmin = Ext.create('Sgis.map.SearchLayerAdmin', me.map);
-      		        	    
+		        	me.geometryService = new esri.tasks.GeometryService("http://cetech.iptime.org:6080/arcgis/rest/services/Utilities/Geometry/GeometryServer");
+		        	
+		        	Ext.Loader.loadScript({url:'app/map/toolbar/CustomDraw.js', onLoad:function(){
+		        		me.dynamicLayerAdmin = Ext.create('Sgis.map.DynamicLayerAdmin', me.map);
+			        	me.searchLayerAdmin = Ext.create('Sgis.map.SearchLayerAdmin', me.map);
+		        		me.toolbar = new ash.map.toolbar.CustomDraw(me.map, {showTooltips:false}, true, me.map.graphics);
+			        	dojo.connect(me.toolbar, "onDrawEnd", function(event){
+			    			me.map.setMapCursor("default");
+			    			me.measure(event);
+			    		});
+		        	}, onError:function(){}});
+		        	
+		        	Ext.Loader.loadScript({url:'app/map/task/CustomPrintTask.js', onLoad:function(){
+		        		me.printTask = new ash.map.task.CustomPrintTask(me.map, "_mapDiv_", "http://cetech.iptime.org:6080/arcgis");
+		        	}, onError:function(){}});
+		        	
+		        	me.smpLineSymbol = new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_SOLID, new dojo.Color([0,0,255,0.8]), 2);
+		    		me.simpleFillSymbol= new esri.symbol.SimpleFillSymbol(esri.symbol.SimpleFillSymbol.STYLE_SOLID, me.smpLineSymbol, new dojo.Color([0,0,255,0.1]));
+		    		me.mapEventDefine()
+		        	Sgis.getApplication().coreMap = me;
         });
+    },
+    
+    mapEventDefine:function(){
+    	var me = this;
+    	dojo.connect(this.map, "onExtentChange", function(extent){
+    		if(me.extentRegAble){
+    			if(me.extentReg.length>30){
+        			me.extentReg.splice(0, 1);
+        		}
+        		me.extentReg.push(extent);
+        		me.extentUnReIdx = me.extentReg.length-1;
+    		}
+    		me.extentRegAble = true;
+    		if(me.backAndWhite && Sgis.getApplication().browser!='Chrome' && Sgis.getApplication().browser!='Opera'){
+    			me.baseMapGrayExtentChange();
+    		}
+		});
     },
     
     baseMapInit: function(){
@@ -98,7 +146,7 @@ Ext.define('Sgis.map.CoreMap', {
 		          ]
 		      });
 		      
-		      this.fullExtent = new esri.geometry.Extent({
+		      me.fullExtent = this.fullExtent = new esri.geometry.Extent({
 		    	  xmin: 12728905.446270483,
 		    	  ymin: 3409091.461517964,
 		    	  xmax: 15766818.698435722,
@@ -122,7 +170,7 @@ Ext.define('Sgis.map.CoreMap', {
 		    getTileUrl: function(level, row, col) {
 		    	var newrow = row + (Math.pow(2, level) * 47);
       			var newcol = col + (Math.pow(2, level) * 107);
-		    	return "http://xdworld.vworld.kr:8080/2d/Base/201301/" + level + "/" + col + "/" + row + ".png";
+		    	return esri.config.defaults.io.proxyUrl + "?http://xdworld.vworld.kr:8080/2d/Base/201301/" + level + "/" + col + "/" + row + ".png";
 		    }	
 		  });
 		var baseMap = new CustomMapsLayer();
@@ -142,6 +190,149 @@ Ext.define('Sgis.map.CoreMap', {
 				dojo.disconnect(handler);  
 			});
 			this.map.resize();	
+		}
+	},
+	
+	areaMeasureReady:function(unit, callback, scope){
+		var me = this;
+		me.map.graphics.clear();
+		me.unit = unit;
+		me.measureCallback = callback;
+		me.measureScope = scope;
+		me.toolbar.activate('polygon');
+		me.map.setMapCursor("default");
+		me.map.isPan = false;
+	},
+	
+	measure:function(event){
+		var me = this;
+		me.toolbar.deactivate();
+		me.map.isPan = true;
+		
+		var polygon = new esri.geometry.Polygon(event);
+		var graphic = new esri.Graphic(polygon, me.simpleFillSymbol);
+		
+		me.map.graphics.add(graphic);
+		dojo.connect(me.map.graphics, "onClick", function(event){
+        	if(event.graphic.img && event.graphic.img =='btn_close' && event.graphic.geometry.uuid){
+        		me.map.graphics.clear();
+        	}
+		});
+		
+		var symbol = new esri.symbol.PictureMarkerSymbol('resources/images/btn_close.png' , 16, 16);
+        var point = null;
+        if(event.type=='polygon'){
+        	var finalRing = event.rings[0][event.rings[0].length-1];
+    		point = new esri.geometry.Point(finalRing[0], finalRing[1], new esri.SpatialReference({"wkid":102100}));
+        }else{
+    		point = new esri.geometry.Point(event.xmax, event.ymax, new esri.SpatialReference({"wkid":102100}));
+        }
+		point.uuid = dojo.dojox.uuid.generateRandomUuid();
+		var delGraphic = new esri.Graphic(point, symbol);
+		delGraphic.img = 'btn_close'; 
+		me.map.graphics.add(delGraphic);
+		
+		
+		var params = new esri.tasks.AreasAndLengthsParameters();
+	    params.polygons  = [ polygon ]
+	    params.areaUnit = esri.tasks.GeometryService[me.unit]
+	    
+	    me.geometryService.areasAndLengths(params, function(result){
+	    	me.measureCallback.apply(me.measureScope, [result]);
+	  	});
+	},
+	
+	baseMapGrayExtentChange:function(){
+		var me = this;
+		if(me.backAndWhite && Sgis.getApplication().browser!='Chrome' && Sgis.getApplication().browser!='Opera'){
+			var imgs = Ext.query('.layerTile');
+			for(var i=0; i<imgs.length; i++){
+				imgs[i].src = me.grayImage(imgs[i]);
+			}
+		}
+	},
+	
+	
+	baseMapGray:function(mode){
+		var me = this;
+		me.backAndWhite = mode;
+		if(Sgis.getApplication().browser=='Chrome' || Sgis.getApplication().browser=='Opera'){
+			if(mode){
+				document.getElementById("_mapDiv__layer0").style['-webkit-filter']="grayscale(100%)";
+			}else{
+				document.getElementById("_mapDiv__layer0").style['-webkit-filter']="";
+			}
+		}else{
+			if(mode){
+				var imgs = Ext.query('.layerTile');
+				for(var i=0; i<imgs.length; i++){
+					imgs[i].src = me.grayImage(imgs[i]);
+				}
+			}else{
+				var level = me.map.getLevel();
+				var deferred = me.map.setLevel(1);
+				deferred.then(function(value){
+					me.map.setLevel(level);
+				},function(error){
+				});
+			}
+		}
+	},
+	
+	fullExtentMove:function(){
+		var me = this;
+		var deferred = me.map.setExtent(me.fullExtent, true);
+		deferred.then(function(value){
+			me.map.setLevel(1+6);
+		},function(error){
+		});
+	},
+	
+	grayImage:function(imgObj){
+		var canvas = document.createElement('canvas');
+	    var canvasContext = canvas.getContext('2d');
+	    console.log("xxxx")
+	    var imgW = imgObj.width;
+	    var imgH = imgObj.height;
+	    canvas.width = imgW;
+	    canvas.height = imgH;
+	     
+	    canvasContext.drawImage(imgObj, 0, 0);
+	    var imgPixels = canvasContext.getImageData(0, 0, imgW, imgH);
+	     
+	    for(var y = 0; y < imgPixels.height; y++){
+	        for(var x = 0; x < imgPixels.width; x++){
+	            var i = (y * 4) * imgPixels.width + x * 4;
+	            var avg = (imgPixels.data[i] + imgPixels.data[i + 1] + imgPixels.data[i + 2]) / 3;
+	            imgPixels.data[i] = avg; 
+	            imgPixels.data[i + 1] = avg; 
+	            imgPixels.data[i + 2] = avg;
+	        }
+	    }
+	    
+	    canvasContext.putImageData(imgPixels, 0, 0, 0, 0, imgPixels.width, imgPixels.height);
+	    return canvas.toDataURL();
+	},
+	
+	prevExtentMove:function(){
+		var me = this;
+		me.extentRegAble = false;
+		me.extentUnReIdx--;
+		if(me.extentUnReIdx > -1){
+			me.map.setExtent(me.extentReg[me.extentUnReIdx], true);
+		}else{
+			me.extentUnReIdx == 0;
+		}
+	},
+	
+	nextExtentMove:function(){
+		var me = this;
+		me.extentRegAble = false;
+		me.extentUnReIdx++;
+		if(me.extentUnReIdx < me.extentReg.length){
+			me.map.setExtent(me.extentReg[me.extentUnReIdx], true);
+		}else{
+			me.extentUnReIdx = me.extentReg.length - 1;
 		}
 	}
 });

@@ -1,9 +1,15 @@
 Ext.define('Cmm.view.LoadingPopup', {
+	
 	extend: 'Ext.window.Window',
+	
+	requires : ['Cmm.view.LoadingPopupController'],
+	
 	xtype: 'cmm_loadingPopup',
 
 	height: 180,
+	
 	width: 200,
+	
 	customStatus:false,
 	
 	controller: 'cmm_loadingPopup',
